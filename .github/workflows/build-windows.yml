@@ -1,0 +1,64 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:            # 支持手动点击运行
+  push:
+    tags:
+      - 'v*'                    # 也可打 tag 触发
+
+permissions:
+  contents: write               # 需要写权限来创建 Release
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      FLUTTER_VERSION: '3.41.9'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.9'
+          cache: true
+
+      - run: flutter pub get --enforce-lockfile
+
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - name: Install Inno Setup
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path -LiteralPath $compiler)) {
+            choco install innosetup --yes --no-progress
+          }
+
+      - name: Build installer
+        run: ./tool/build_windows_installer.ps1 -Version 0.2.5 -BuildNumber 1
+
+      - name: Upload portable build (整个 Release 目录)
+        uses: actions/upload-artifact@v4
+        with:
+          name: minireel-windows-portable
+          path: build/windows/x64/runner/Release/**
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: minireel-windows-installer
+          path: output/release/*.exe
+
+      - name: Create Release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v0.2.5-win" output/release/*.exe `
+            --title "MiniReel 0.2.5 Windows" `
+            --notes "Windows x64 安装程序"
